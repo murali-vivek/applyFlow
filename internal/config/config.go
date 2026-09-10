@@ -27,6 +27,12 @@ type Config struct {
 	JWTSecret   string
 	FrontendURL string
 
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
+
 	SchedulerInterval time.Duration
 	StaleQueuedAfter  time.Duration
 }
@@ -47,9 +53,23 @@ func Load() (*Config, error) {
 		GoogleRedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
 		JWTSecret:          os.Getenv("JWT_SECRET"),
 		FrontendURL:        getEnv("FRONTEND_URL", "http://localhost:5173"),
+		SMTPHost:           getEnv("SMTP_HOST", "smtp.zoho.com"),
+		SMTPUser:           os.Getenv("SMTP_USER"),
+		SMTPPassword:       os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:           os.Getenv("SMTP_FROM"),
 		SchedulerInterval:  15 * time.Second,
 		StaleQueuedAfter:   5 * time.Minute,
 	}
+
+	smtpPort := 587
+	if v := os.Getenv("SMTP_PORT"); v != "" {
+		port, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SMTP_PORT: %w", err)
+		}
+		smtpPort = port
+	}
+	cfg.SMTPPort = smtpPort
 
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
@@ -92,4 +112,8 @@ func isPlaceholder(v string) bool {
 		}
 	}
 	return v == ""
+}
+
+func (c *Config) SMTPEnabled() bool {
+	return c.SMTPUser != "" && c.SMTPPassword != "" && c.SMTPFrom != ""
 }

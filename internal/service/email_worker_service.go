@@ -9,6 +9,7 @@ import (
 	"github.com/applyflow/applyflow/internal/model"
 	"github.com/applyflow/applyflow/internal/render"
 	"github.com/applyflow/applyflow/internal/repository"
+	"github.com/applyflow/applyflow/internal/smtp"
 	"github.com/applyflow/applyflow/internal/storage"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,6 +25,7 @@ type EmailWorkerService struct {
 	oauth     *repository.OAuthRepository
 	s3        *storage.S3Client
 	gmail     *gmail.Sender
+	smtp      *smtp.Sender
 }
 
 func NewEmailWorkerService(
@@ -36,10 +38,11 @@ func NewEmailWorkerService(
 	oauth *repository.OAuthRepository,
 	s3 *storage.S3Client,
 	gmailSender *gmail.Sender,
+	smtpSender *smtp.Sender,
 ) *EmailWorkerService {
 	return &EmailWorkerService{
 		pool: pool, outreach: outreach, campaigns: campaigns, users: users,
-		templates: templates, resumes: resumes, oauth: oauth, s3: s3, gmail: gmailSender,
+		templates: templates, resumes: resumes, oauth: oauth, s3: s3, gmail: gmailSender, smtp: smtpSender,
 	}
 }
 
@@ -92,23 +95,33 @@ func (w *EmailWorkerService) Process(ctx context.Context, outreachID uuid.UUID) 
 		return w.retryableFail(ctx, outreach, fmt.Sprintf("download resume: %v", err))
 	}
 
-	cred, err := w.oauth.GetByUserID(ctx, outreach.UserID)
-	if err != nil {
-		return w.failOutreach(ctx, outreach, campaign, "OAuth credentials not found")
-	}
-
 	subject := render.Template(tmpl.Subject, user.Name, outreach.CompanyName, outreach.Role)
 	body := render.Template(tmpl.Body, user.Name, outreach.CompanyName, outreach.Role)
 
 	slog.Info("email_send_started", "outreach_id", outreachID, "from", user.Email, "to", outreach.RecipientEmail)
 
-	msgID, err := w.gmail.Send(ctx, cred, user.Email, outreach.RecipientEmail, subject, body, resume.Name, pdfData)
-	if err != nil {
-		return w.retryableFail(ctx, outreach, fmt.Sprintf("send email: %v", err))
+	var msgID string
+	if w.smtp != nil {
+		slog.Info("using_smtp", "from", w.smtp.FromAddress())
+		fromEmail := w.smtp.FromAddress()
+		if fromEmail == "" {
+			fromEmail = user.Email
+		}
+		msgID, err = w.smtp.Send(ctx, outreach.RecipientEmail, subject, body, resume.Name, pdfData)
+	} else {
+		slog.Info("using_gmail_oauth")
+		cred, err := w.oauth.GetByUserID(ctx, outreach.UserID)
+		if err != nil {
+			return w.failOutreach(ctx, outreach, campaign, "OAuth credentials not found")
+		}
+		msgID, err = w.gmail.Send(ctx, cred, user.Email, outreach.RecipientEmail, subject, body, resume.Name, pdfData)
+		if cred.AccessToken != "" {
+			_ = w.oauth.UpdateTokens(ctx, cred.UserID, cred.AccessToken, cred.ExpiresAt)
+		}
 	}
 
-	if cred.AccessToken != "" {
-		_ = w.oauth.UpdateTokens(ctx, cred.UserID, cred.AccessToken, cred.ExpiresAt)
+	if err != nil {
+		return w.retryableFail(ctx, outreach, fmt.Sprintf("send email: %v", err))
 	}
 
 	tx, err := w.pool.Begin(ctx)

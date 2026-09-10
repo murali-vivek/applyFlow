@@ -14,6 +14,7 @@ import (
 	"github.com/applyflow/applyflow/internal/queue"
 	"github.com/applyflow/applyflow/internal/repository"
 	"github.com/applyflow/applyflow/internal/service"
+	"github.com/applyflow/applyflow/internal/smtp"
 	"github.com/applyflow/applyflow/internal/storage"
 )
 
@@ -46,6 +47,20 @@ func main() {
 
 	gmailSender := gmail.NewSender(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL)
 
+	var smtpSender *smtp.Sender
+	if cfg.SMTPEnabled() {
+		slog.Info("smtp_configured", "host", cfg.SMTPHost, "port", cfg.SMTPPort, "user", cfg.SMTPUser, "from", cfg.SMTPFrom)
+		smtpSender = smtp.NewSender(smtp.Config{
+			Host:     cfg.SMTPHost,
+			Port:     cfg.SMTPPort,
+			User:     cfg.SMTPUser,
+			Password: cfg.SMTPPassword,
+			From:     cfg.SMTPFrom,
+		})
+	} else {
+		slog.Info("smtp_not_configured")
+	}
+
 	worker := service.NewEmailWorkerService(
 		pool,
 		repository.NewOutreachRepository(pool),
@@ -56,6 +71,7 @@ func main() {
 		repository.NewOAuthRepository(pool),
 		s3Client,
 		gmailSender,
+		smtpSender,
 	)
 
 	workerCtx, cancel := context.WithCancel(context.Background())
