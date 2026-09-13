@@ -18,3 +18,7 @@ frontend/dist/
 # IDE
 .idea/
 .vscode/
+
+# ECS task defs with secrets — do not commit
+infra/ecs-task-api.json
+infra/ecs-task-worker.json

@@ -1,0 +1,16 @@
+# Git
+.git
+.gitignore
+
+# Secrets — never bake into images
+.env
+.env.*
+
+# Frontend (API/worker images don't need it)
+frontend/node_modules
+frontend/dist
+
+# Local junk
+bin
+*.pem
+.DS_Store

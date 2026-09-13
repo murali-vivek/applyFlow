@@ -1,0 +1,26 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3Uploads",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:HeadBucket"],
+      "Resource": [
+        "arn:aws:s3:::applyflow-uploads",
+        "arn:aws:s3:::applyflow-uploads/*"
+      ]
+    },
+    {
+      "Sid": "SQSEmailQueue",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueUrl",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "arn:aws:sqs:ap-south-2:693810165740:applyflow-email-queue"
+    }
+  ]
+}

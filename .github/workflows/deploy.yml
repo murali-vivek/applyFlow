@@ -1,0 +1,96 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-2
+  AWS_ACCOUNT: "693810165740"
+  CLUSTER: applyflow
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume AWS role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::693810165740:role/applyflow-github-actions
+          aws-region: ap-south-2
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push images
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          API="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/applyflow-api"
+          WORKER="${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/applyflow-worker"
+          docker build --build-arg SERVICE=api -t "${API}:${SHA}" -t "${API}:latest" .
+          docker build --build-arg SERVICE=worker -t "${WORKER}:${SHA}" -t "${WORKER}:latest" .
+          docker push "${API}:${SHA}"
+          docker push "${API}:latest"
+          docker push "${WORKER}:${SHA}"
+          docker push "${WORKER}:latest"
+
+      - name: Register new task definitions and update services
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          deploy_one() {
+            local family="$1"
+            local image="$2"
+            local service="$3"
+            aws ecs describe-task-definition --task-definition "${family}" \
+              --query taskDefinition \
+              | jq --arg IMAGE "${image}" '
+                  del(
+                    .taskDefinitionArn,
+                    .revision,
+                    .status,
+                    .requiresAttributes,
+                    .compatibilities,
+                    .registeredAt,
+                    .registeredBy,
+                    .deregisteredAt
+                  )
+                  | .containerDefinitions[0].image = $IMAGE
+                ' > /tmp/td.json
+            local rev
+            rev="$(aws ecs register-task-definition --cli-input-json file:///tmp/td.json --query 'taskDefinition.revision' --output text)"
+            aws ecs update-service \
+              --cluster "${CLUSTER}" \
+              --service "${service}" \
+              --task-definition "${family}:${rev}" \
+              --force-new-deployment
+            echo "Updated ${service} -> ${family}:${rev}"
+          }
+
+          deploy_one applyflow-api \
+            "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/applyflow-api:${SHA}" \
+            applyflow-api
+          deploy_one applyflow-worker \
+            "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/applyflow-worker:${SHA}" \
+            applyflow-worker
