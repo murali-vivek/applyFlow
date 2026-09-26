@@ -1,5 +1,5 @@
 {
-  "CallerReference": "applyflow-api-cf-20260913",
+  "CallerReference": "applyflow-api-cf-20260923",
   "Comment": "ApplyFlow API HTTPS (CloudFront default cert, no custom domain)",
   "Enabled": true,
   "HttpVersion": "http2",
@@ -9,7 +9,7 @@
     "Items": [
       {
         "Id": "applyflow-alb",
-        "DomainName": "applyflow-api-alb-2122830522.ap-south-2.elb.amazonaws.com",
+        "DomainName": "applyflow-api-alb-1191968483.ap-south-2.elb.amazonaws.com",
         "CustomOriginConfig": {
           "HTTPPort": 80,
           "HTTPSPort": 443,
